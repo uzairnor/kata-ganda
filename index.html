@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kata Ganda Bowling AI - BM Tahun 2</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Three.js for 3D Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Google Font - Fredoka -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- Tone.js for Audio Synth & FX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <style>
+        * {
+            touch-action: manipulation;
+        }
+        body {
+            font-family: 'Fredoka', cursive, sans-serif;
+            overflow: hidden;
+            background-color: #0b0f19;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .cam-preview-box {
+            position: relative;
+            transform: scaleX(-1); /* Mirror camera stream */
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <div id="canvas-container"></div>
+
+    <!-- Hidden Video Tag for MediaPipe Tracking -->
+    <video id="webcam-video" class="hidden" playsinline></video>
+
+    <!-- UI Overlay Layer -->
+    <div class="relative z-10 w-full h-screen flex flex-col justify-between p-2 md:p-4 pointer-events-none">
+        
+        <div class="w-full max-w-4xl mx-auto flex flex-col gap-2 pointer-events-auto">
+            
+            <!-- HUD Info Bar -->
+            <header class="flex justify-between items-center w-full gap-2">
+                <!-- Question Counter -->
+                <div class="glass-panel rounded-xl px-3 py-1.5 flex items-center gap-2 shadow-lg">
+                    <i class="fas fa-layer-group text-amber-400 text-sm md:text-base"></i>
+                    <div>
+                        <p class="text-[9px] md:text-xs text-gray-400 uppercase font-bold leading-none">Soalan</p>
+                        <p id="level-display" class="text-xs md:text-base font-extrabold text-amber-300 leading-tight">1 / 20</p>
+                    </div>
+                </div>
+
+                <!-- Total Score -->
+                <div class="glass-panel rounded-xl px-3 py-1.5 flex items-center gap-2 shadow-lg">
+                    <i class="fas fa-star text-yellow-400 text-sm md:text-base"></i>
+                    <div>
+                        <p class="text-[9px] md:text-xs text-gray-400 uppercase font-bold leading-none">Markah</p>
+                        <p id="score-display" class="text-xs md:text-base font-extrabold text-emerald-400 leading-tight">0</p>
+                    </div>
+                </div>
+
+                <!-- Timer -->
+                <div class="glass-panel rounded-xl px-3 py-1.5 flex items-center gap-2 shadow-lg">
+                    <i class="fas fa-clock text-rose-400 text-sm md:text-base"></i>
+                    <div>
+                        <p class="text-[9px] md:text-xs text-gray-400 uppercase font-bold leading-none">Masa</p>
+                        <p id="timer-display" class="text-xs md:text-base font-extrabold text-rose-400 leading-tight">30s</p>
+                    </div>
+                </div>
+
+                <!-- Camera Stream Thumbnail Preview -->
+                <div class="glass-panel rounded-xl p-1 shadow-lg flex items-center gap-2 relative overflow-hidden">
+                    <div class="w-12 h-9 bg-slate-900 rounded-lg overflow-hidden cam-preview-box flex items-center justify-center border border-slate-700">
+                        <canvas id="cam-canvas" class="w-full h-full object-cover"></canvas>
+                        <i id="cam-off-icon" class="fas fa-video-slash text-slate-500 text-xs absolute"></i>
+                    </div>
+                    <div class="hidden md:block pr-1 text-left">
+                        <p class="text-[9px] text-gray-400 uppercase font-bold leading-none">Kawalan</p>
+                        <p id="cam-status-text" class="text-[11px] font-bold text-cyan-400 leading-tight">Tetikus/Sentuhan</p>
+                    </div>
+                </div>
+            </header>
+
+            <div class="glass-panel rounded-2xl p-3 md:p-4 text-center shadow-2xl border-2 border-amber-400/40 bg-slate-900/95 backdrop-blur-md">
+                <div class="bg-amber-400 text-slate-950 font-black text-[10px] md:text-xs uppercase px-3 py-0.5 rounded-full inline-block mb-1 shadow">
+                    Bahasa Melayu Tahun 2: Kata Ganda
+                </div>
+                
+                <h2 id="question-text" class="text-sm md:text-xl font-extrabold text-white tracking-wide leading-snug mb-3">
+                    Lengkapkan ayat: <span class="text-amber-300 underline">[...]</span>
+                </h2>
+
+                <!-- Choice Buttons (Phase 2 Selection) -->
+                <div id="choices-container" class="grid grid-cols-3 gap-2 md:gap-4 max-w-xl mx-auto">
+                    <!-- Buttons will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Action / Phase Status Banner -->
+            <div id="phase-status-banner" class="glass-panel rounded-xl px-4 py-2 text-center border-2 border-cyan-400/60 bg-slate-900/90 shadow-xl transition-all duration-300">
+                <p id="status-title" class="text-xs md:text-sm font-extrabold text-cyan-300 animate-pulse">
+                    1. SILA PILIH JAWAPAN KATA GANDA DI ATAS!
+                </p>
+            </div>
+
+        </div>
+
+        <footer class="w-full max-w-md mx-auto flex justify-center items-center pointer-events-auto mb-1">
+            <button id="manual-throw-btn" onclick="triggerManualThrow()" class="hidden glass-panel w-full py-2.5 px-4 rounded-xl text-xs md:text-sm text-amber-300 font-extrabold flex items-center justify-center gap-2 shadow-lg border-2 border-amber-400 hover:bg-amber-400 hover:text-slate-950 transition active:scale-95">
+                <i class="fas fa-bowling-ball text-base animate-bounce"></i>
+                <span>SENTUH / KLIK SINI UNTUK BALING BOLA</span>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Start Game Modal Overlay -->
+    <div id="start-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="glass-panel max-w-sm md:max-w-md w-full rounded-3xl p-5 md:p-6 text-center border-2 border-amber-400/50 shadow-2xl relative">
+            <div class="w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-950 text-3xl shadow-lg border-4 border-white">
+                <i class="fas fa-bowling-ball"></i>
+            </div>
+            <h1 class="text-xl md:text-2xl font-black text-amber-300 mb-1">KATA GANDA BOWLING AI</h1>
+            <p class="text-gray-300 text-xs mb-3 leading-relaxed">
+                Permainan Interaktif Bahasa Melayu Tahun 2 dengan Kawalan Kamera AI!
+            </p>
+
+            <!-- Student Name Input -->
+            <div class="mb-3 text-left">
+                <label for="student-name-input" class="block text-xs font-bold text-amber-300 mb-1 ml-1">
+                    <i class="fas fa-user-graduate mr-1"></i> Nama Murid:
+                </label>
+                <input type="text" id="student-name-input" placeholder="Masukkan nama murid..." class="w-full bg-slate-800 text-white placeholder-slate-400 text-xs rounded-xl px-3 py-2 border-2 border-amber-400/60 focus:outline-none focus:border-amber-300 transition" />
+                <p id="name-error-msg" class="text-rose-400 text-[10px] font-semibold mt-1 hidden"><i class="fas fa-exclamation-circle mr-1"></i>Sila masukkan nama murid dahulu!</p>
+            </div>
+
+            <!-- Mode Selection -->
+            <div class="mb-4 text-left bg-slate-900/80 p-3 rounded-2xl border border-slate-700">
+                <label class="block text-xs font-bold text-cyan-300 mb-2">
+                    <i class="fas fa-gamepad mr-1"></i> Mod Kawalan Permainan:
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" id="btn-mode-cam" onclick="setControlMode('cam')" class="py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/80 text-cyan-200 font-bold text-xs flex flex-col items-center gap-1 transition">
+                        <i class="fas fa-camera text-base"></i>
+                        <span>AI Kamera Tangan</span>
+                    </button>
+                    <button type="button" id="btn-mode-touch" onclick="setControlMode('touch')" class="py-2 px-3 rounded-xl border-2 border-slate-700 bg-slate-800 text-gray-400 font-bold text-xs flex flex-col items-center gap-1 transition">
+                        <i class="fas fa-hand-pointer text-base"></i>
+                        <span>Sentuhan Skrin</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="startGame()" class="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black text-sm md:text-base py-3 rounded-2xl shadow-xl border-b-4 border-teal-800 transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fas fa-play"></i> MULA MAIN
+                </button>
+                <button onclick="openLeaderboard()" class="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs px-3 py-3 rounded-2xl border-2 border-amber-400/50 shadow-xl transition transform active:scale-95 flex items-center justify-center gap-1">
+                    <i class="fas fa-list-ol"></i> SKOR
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div id="leaderboard-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-md w-full rounded-3xl p-4 text-center border-2 border-amber-400/50 shadow-2xl relative flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-base md:text-lg font-black text-amber-300 flex items-center gap-2">
+                    <i class="fas fa-trophy text-yellow-400"></i> SENARAI REKOD MURID
+                </h3>
+                <button onclick="closeLeaderboard()" class="text-slate-400 hover:text-white text-base px-2">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div id="leaderboard-list" class="flex-1 overflow-y-auto space-y-2 pr-1 mb-3 text-left"></div>
+
+            <div class="flex gap-2 pt-2 border-t border-slate-700">
+                <button onclick="clearLeaderboard()" class="text-xs bg-rose-950/80 hover:bg-rose-900 text-rose-300 px-3 py-2 rounded-xl border border-rose-700/50">
+                    <i class="fas fa-trash-alt mr-1"></i> Padam
+                </button>
+                <button onclick="closeLeaderboard()" class="flex-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs py-2 rounded-xl shadow">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="gameover-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="glass-panel max-w-sm md:max-w-md w-full rounded-3xl p-5 text-center border-2 border-amber-400/50 shadow-2xl relative">
+            <div id="gameover-icon-box" class="w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center mx-auto mb-2 text-slate-950 text-3xl shadow-lg border-4 border-white">
+                <i id="gameover-icon" class="fas fa-trophy"></i>
+            </div>
+            <h2 id="gameover-title" class="text-xl md:text-2xl font-black text-white mb-1">TAMAT PERMAINAN</h2>
+            <p id="gameover-msg" class="text-gray-300 text-xs mb-3">Syabas! Anda telah berusaha dengan cemerlang!</p>
+
+            <div class="bg-slate-800/90 rounded-2xl p-3 mb-4 border border-slate-700">
+                <p id="student-name-display" class="text-amber-300 font-bold text-xs mb-1">Nama Murid: -</p>
+                <p class="text-[9px] uppercase text-gray-400 font-bold">Jumlah Markah Akhir</p>
+                <p id="final-score" class="text-2xl md:text-3xl font-extrabold text-amber-400 my-0.5">0</p>
+                <p id="feedback-rating" class="text-xs text-emerald-400 font-semibold">Hebat! Cemerlang Kata Ganda BM!</p>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="restartGame()" class="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs md:text-sm py-2.5 rounded-2xl shadow-xl border-b-4 border-orange-800 transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fas fa-redo"></i> MAIN LAGI
+                </button>
+                <button onclick="openLeaderboard()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-3 py-2.5 rounded-2xl shadow-xl border-b-4 border-indigo-800 transition transform active:scale-95 flex items-center justify-center gap-1">
+                    <i class="fas fa-list-ol"></i> LEADERBOARD
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="feedback-toast" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 px-6 py-4 rounded-3xl text-center font-black shadow-2xl border-4 transition-all duration-300 transform scale-0 opacity-0 pointer-events-none min-w-[280px]">
+        <div id="toast-title" class="text-lg md:text-xl">BETUL!</div>
+        <div id="toast-sub" class="text-xs font-semibold mt-1"></div>
+    </div>
+
+    <script>
+        const QUESTION_BANK = [
+            {
+                type: "Kata Ganda Penuh",
+                question: "Rumah itu dihiasi dengan lampu-lampu yang _________.",
+                options: ["cantik-cantik", "budak-budak", "kuda-kuda"],
+                correctIdx: 0,
+                explain: "'cantik-cantik' merujuk kepada sifat lampu yang banyak dan indah."
+            },
+            {
+                type: "Kata Ganda Penuh",
+                question: "_________ itu sedang bermain bola di padang sekolah.",
+                options: ["Buku-buku", "Budak-budak", "Meja-meja"],
+                correctIdx: 1,
+                explain: "'Budak-budak' menunjukkan bilangan kanak-kanak yang ramai."
+            },
+            {
+                type: "Kata Ganda Penuh",
+                question: "Ibu membeli _________ yang segar di pasar malam.",
+                options: ["ikan-ikan", "kasut-kasut", "kerusi-kerusi"],
+                correctIdx: 0,
+                explain: "'Ikan-ikan' merujuk kepada pelbagai jenis atau jumlah ikan."
+            },
+            {
+                type: "Kata Ganda Penuh",
+                question: "_________ yang tinggi itu melambai-lambai ditiup angin.",
+                options: ["Pohon-pohon", "Gula-gula", "Kucing-kucing"],
+                correctIdx: 0,
+                explain: "'Pohon-pohon' merujuk banyak pokok kayu."
+            },
+            {
+                type: "Kata Ganda Penuh",
+                question: "Adik suka makan _________ yang manis itu.",
+                options: ["gula-gula", "pintu-pintu", "batu-batu"],
+                correctIdx: 0,
+                explain: "'gula-gula' ialah sejenis makanan manis."
+            },
+            {
+                type: "Kata Ganda Semu",
+                question: "_________ itu terbang tinggi di udara.",
+                options: ["Kupu-kupu", "Anak-anak", "Kereta-kereta"],
+                correctIdx: 0,
+                explain: "'Kupu-kupu' ialah kata ganda semu (kata tunggal berulang)."
+            },
+            {
+                type: "Kata Ganda Semu",
+                question: "Abang suka makan _________ goreng yang dibuat oleh ibu.",
+                options: ["paru-paru", "onde-onde", "layang-layang"],
+                correctIdx: 1,
+                explain: "'onde-onde' ialah nama kuih tradisional."
+            },
+            {
+                type: "Kata Ganda Semu",
+                question: "Kanak-kanak itu menaikkan _________ di kawasan lapang.",
+                options: ["layang-layang", "gula-gula", "kura-kura"],
+                correctIdx: 0,
+                explain: "'layang-layang' ialah mainan yang diterbangkan angin."
+            },
+            {
+                type: "Kata Ganda Semu",
+                question: "_________ berjalan sangat perlahan di tepi pantai.",
+                options: ["Kura-kura", "Labi-labi", "Biri-biri"],
+                correctIdx: 0,
+                explain: "'Kura-kura' mempunyai cangkerang yang keras."
+            },
+            {
+                type: "Kata Ganda Semu",
+                question: "Biri-biri itu mempunyai _________ yang tebal dan putih.",
+                options: ["bulu-bulu", "biri-biri", "gula-gula"],
+                correctIdx: 1,
+                explain: "'Biri-biri' merujuk haiwan ternakan berbulu tebal."
+            },
+            {
+                type: "Kata Ganda Separa",
+                question: "_________ burung itu diperbuat daripada ranting kayu.",
+                options: ["Sarang", "Sarang-sarang", "Sesarang"],
+                correctIdx: 2,
+                explain: "'Sesarang' ialah Kata Ganda Separa bagi sarang."
+            },
+            {
+                type: "Kata Ganda Separa",
+                question: "Lelaki itu memotong _________ pokok yang menghalang jalan.",
+                options: ["daun", "pohon", "dedaun"],
+                correctIdx: 2,
+                explain: "'dedaun' ialah Kata Ganda Separa bagi daun."
+            },
+            {
+                type: "Kata Ganda Separa",
+                question: "Kuda itu dipasang _________ sebelum ditunggangi.",
+                options: ["kuda-kuda", "kekuda", "kuda"],
+                correctIdx: 1,
+                explain: "'kekuda' merujuk struktur penahan/kayu."
+            },
+            {
+                type: "Kata Ganda Separa",
+                question: "Kawasan itu dikelilingi oleh _________ besi yang tinggi.",
+                options: ["pagar", "pijak", "pepagar"],
+                correctIdx: 2,
+                explain: "'pepagar' ialah Kata Ganda Separa bagi pagar."
+            },
+            {
+                type: "Kata Ganda Separa",
+                question: "_________ merupakan sejenis haiwan yang suka hinggap di sampah.",
+                options: ["Lalat", "Lalat-lalat", "Lelalat"],
+                correctIdx: 2,
+                explain: "'Lelalat' ialah bentuk kata ganda separa lalat."
+            },
+            {
+                type: "Kata Ganda Berentak",
+                question: "Suasana di pasar malam itu sangat _________.",
+                options: ["riuk-rendah", "hiruk-piruk", "kuih-muih"],
+                correctIdx: 1,
+                explain: "'hiruk-piruk' bermaksud keadaan bising dan sibuk."
+            },
+            {
+                type: "Kata Ganda Berentak",
+                question: "Ibu menghidangkan pelbagai jenis _________ untuk tetamu.",
+                options: ["kuih-muih", "lauk-pauk", "warna-warni"],
+                correctIdx: 0,
+                explain: "'kuih-muih' merujuk pelbagai aneka kuih."
+            },
+            {
+                type: "Kata Ganda Berentak",
+                question: "Baju pengantin itu kelihatan _________ dan indah.",
+                options: ["warna-warni", "gunung-ganang", "bukit-bukau"],
+                correctIdx: 0,
+                explain: "'warna-warni' mempunyai banyak warna."
+            },
+            {
+                type: "Kata Ganda Berentak",
+                question: "Malaysia mempunyai kawasan _________ yang hijau dan tenang.",
+                options: ["bukit-bukau", "simpang-siur", "porak-peranda"],
+                correctIdx: 0,
+                explain: "'bukit-bukau' merujuk banyak bukit."
+            },
+            {
+                type: "Kata Ganda Berentak",
+                question: "Lauk-pauk yang dimasak oleh nenek sangat _________.",
+                options: ["enak-enak", "sedap-sedap", "lauk-pauk"],
+                correctIdx: 2,
+                explain: "'lauk-pauk' merujuk pelbagai hidangan lauk."
+            }
+        ];
+
+        class SoundManager {
+            constructor() {
+                this.isInit = false;
+                this.synth = null;
+            }
+            async init() {
+                if (this.isInit) return;
+                await Tone.start();
+                this.synth = new Tone.PolySynth(Tone.Synth).toDestination();
+                this.synth.volume.value = -6;
+                this.isInit = true;
+            }
+            playSelect() {
+                if (!this.isInit) return;
+                this.synth.triggerAttackRelease(["C5", "E5"], "16n");
+            }
+            playHit() {
+                if (!this.isInit) return;
+                const noise = new Tone.NoiseSynth({
+                    envelope: { attack: 0.005, decay: 0.2, sustain: 0 }
+                }).toDestination();
+                noise.triggerAttackRelease("8n");
+            }
+            playSuccess() {
+                if (!this.isInit) return;
+                const now = Tone.now();
+                this.synth.triggerAttackRelease("C5", "8n", now);
+                this.synth.triggerAttackRelease("E5", "8n", now + 0.1);
+                this.synth.triggerAttackRelease("G5", "8n", now + 0.2);
+                this.synth.triggerAttackRelease("C6", "4n", now + 0.3);
+            }
+            playFail() {
+                if (!this.isInit) return;
+                const now = Tone.now();
+                this.synth.triggerAttackRelease("E3", "8n", now);
+                this.synth.triggerAttackRelease("D3", "4n", now + 0.15);
+            }
+        }
+        const audio = new SoundManager();
+
+        let studentName = "";
+        let controlMode = "cam"; // "cam" or "touch"
+        let score = 0;
+        let currentQuestionIdx = 0;
+        let questionsSequence = [];
+        let selectedOptionIdx = null; // Phase 2 Choice
+        let timer = 30;
+        let timerInterval = null;
+        let gamePhase = 1; // 1: Soalan, 2: Pilih Jawapan, 3: Get Ready, 4: Swing, 5: Detect, 6: Ball Roll, 7: Pin Collision, 8: Semak & Markah
+        let isGameOver = false;
+
+        // Camera Tracking variables
+        let cameraObj = null;
+        let handDetector = null;
+        let previousHandY = null;
+        let swingVelocity = 0.35;
+        let swingDirectionX = 0;
+
+        // Three.js Objects
+        let scene, camera, renderer;
+        let ball, lane, pins = [];
+        const PIN_COUNT = 10;
+        
+        // Standard 10-pin triangle setup positions
+        const PIN_POSITIONS = [
+            { x: 0, z: -12.5 },                     // Row 1
+            { x: -0.4, z: -13.2 }, { x: 0.4, z: -13.2 }, // Row 2
+            { x: -0.8, z: -13.9 }, { x: 0, z: -13.9 }, { x: 0.8, z: -13.9 }, // Row 3
+            { x: -1.2, z: -14.6 }, { x: -0.4, z: -14.6 }, { x: 0.4, z: -14.6 }, { x: 1.2, z: -14.6 } // Row 4
+        ];
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0f1d);
+            scene.fog = new THREE.FogExp2(0x0a0f1d, 0.02);
+
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(aspect < 1 ? 75 : 60, aspect, 0.1, 100);
+            camera.position.set(0, 3.8, 5.5);
+            camera.lookAt(0, 0.6, -11);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lighting Setup
+            const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambient);
+
+            const dirLight = new THREE.DirectionalLight(0xfff5ea, 1.2);
+            dirLight.position.set(5, 12, 5);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            scene.add(dirLight);
+
+            const spotLight = new THREE.SpotLight(0x38bdf8, 2.0);
+            spotLight.position.set(0, 8, -10);
+            spotLight.angle = Math.PI / 3.5;
+            scene.add(spotLight);
+
+            createBowlingLane();
+            createBowlingBall();
+            spawn10Pins();
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createBowlingLane() {
+            // Wood Lane
+            const laneGeo = new THREE.BoxGeometry(5.0, 0.2, 26);
+            const laneMat = new THREE.MeshStandardMaterial({ color: 0xdd985c, roughness: 0.25, metalness: 0.1 });
+            lane = new THREE.Mesh(laneGeo, laneMat);
+            lane.position.set(0, -0.1, -8);
+            lane.receiveShadow = true;
+            scene.add(lane);
+
+            // Gutters
+            const gutterMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+            const leftGutter = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 26), gutterMat);
+            leftGutter.position.set(-3.1, -0.15, -8);
+            scene.add(leftGutter);
+
+            const rightGutter = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 26), gutterMat);
+            rightGutter.position.set(3.1, -0.15, -8);
+            scene.add(rightGutter);
+
+            // Neon Lane Guide Lines
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+            const leftLine = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.21, 26), lineMat);
+            leftLine.position.set(-2.45, -0.09, -8);
+            scene.add(leftLine);
+
+            const rightLine = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.21, 26), lineMat);
+            rightLine.position.set(2.45, -0.09, -8);
+            scene.add(rightLine);
+        }
+
+        function createBowlingBall() {
+            const ballGeo = new THREE.SphereGeometry(0.5, 32, 32);
+            const ballMat = new THREE.MeshStandardMaterial({ color: 0xec4899, roughness: 0.1, metalness: 0.5 });
+            ball = new THREE.Mesh(ballGeo, ballMat);
+            ball.castShadow = true;
+            resetBallPosition();
+            scene.add(ball);
+        }
+
+        function resetBallPosition() {
+            ball.position.set(0, 0.5, 2.0);
+            ball.rotation.set(0, 0, 0);
+            ball.userData = { vx: 0, vz: 0, isRolling: false };
+        }
+
+        function spawn10Pins() {
+            pins.forEach(p => scene.remove(p.mesh));
+            pins = [];
+
+            PIN_POSITIONS.forEach((pos, idx) => {
+                const pinGroup = new THREE.Group();
+                pinGroup.position.set(pos.x, 0, pos.z);
+
+                const pinGeo = new THREE.CylinderGeometry(0.12, 0.25, 1.2, 16);
+                const pinMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+                const pinMesh = new THREE.Mesh(pinGeo, pinMat);
+                pinMesh.position.y = 0.6;
+                pinMesh.castShadow = true;
+                pinGroup.add(pinMesh);
+
+                // Red Stripe Ring
+                const ringGeo = new THREE.CylinderGeometry(0.14, 0.15, 0.12, 16);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+                const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                ringMesh.position.y = 0.85;
+                pinGroup.add(ringMesh);
+
+                scene.add(pinGroup);
+
+                pins.push({
+                    id: idx + 1,
+                    mesh: pinGroup,
+                    hit: false,
+                    vx: 0, vy: 0, vz: 0,
+                    rx: 0, rz: 0
+                });
+            });
+        }
+
+        function initCameraTracking() {
+            const videoEl = document.getElementById('webcam-video');
+            const camCanvas = document.getElementById('cam-canvas');
+            const camCtx = camCanvas.getContext('2d');
+
+            handDetector = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            handDetector.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            handDetector.onResults((results) => {
+                camCtx.save();
+                camCtx.clearRect(0, 0, camCanvas.width, camCanvas.height);
+                camCtx.drawImage(results.image, 0, 0, camCanvas.width, camCanvas.height);
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    document.getElementById('cam-off-icon').classList.add('hidden');
+                    const landmarks = results.multiHandLandmarks[0];
+                    const wristY = landmarks[0].y;
+                    const wristX = landmarks[0].x;
+
+                    // Calculate Swing Velocity & Motion Direction
+                    if (previousHandY !== null) {
+                        const deltaY = previousHandY - wristY; // Upward motion = positive swing
+                        if (gamePhase === 3 || gamePhase === 4) {
+                            if (deltaY > 0.08) { // Fast upward motion detected
+                                swingVelocity = Math.min(0.6, Math.max(0.2, deltaY * 2.2));
+                                swingDirectionX = (0.5 - wristX) * 1.5; // X deflection
+                                executeAISwing();
+                            }
+                        }
+                    }
+                    previousHandY = wristY;
+
+                    // Horizontal ball positioning before swing
+                    if (gamePhase === 3) {
+                        const normalizedX = (0.5 - wristX) * 4.0;
+                        ball.position.x = Math.max(-1.8, Math.min(1.8, normalizedX));
+                    }
+                } else {
+                    document.getElementById('cam-off-icon').classList.remove('hidden');
+                }
+                camCtx.restore();
+            });
+
+            cameraObj = new Camera(videoEl, {
+                onFrame: async () => {
+                    await handDetector.send({ image: videoEl });
+                },
+                width: 320,
+                height: 240
+            });
+
+            cameraObj.start().catch(() => {
+                console.warn("Kamera tidak dibenarkan atau tidak tersedia. Beralih ke kawalan sentuhan.");
+                setControlMode('touch');
+            });
+        }
+
+        function setControlMode(mode) {
+            controlMode = mode;
+            const btnCam = document.getElementById('btn-mode-cam');
+            const btnTouch = document.getElementById('btn-mode-touch');
+            const statusText = document.getElementById('cam-status-text');
+
+            if (mode === 'cam') {
+                btnCam.className = "py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/80 text-cyan-200 font-bold text-xs flex flex-col items-center gap-1 transition";
+                btnTouch.className = "py-2 px-3 rounded-xl border-2 border-slate-700 bg-slate-800 text-gray-400 font-bold text-xs flex flex-col items-center gap-1 transition";
+                statusText.innerText = "AI Kamera Tangan";
+                document.getElementById('manual-throw-btn').classList.add('hidden');
+            } else {
+                btnTouch.className = "py-2 px-3 rounded-xl border-2 border-cyan-400 bg-cyan-950/80 text-cyan-200 font-bold text-xs flex flex-col items-center gap-1 transition";
+                btnCam.className = "py-2 px-3 rounded-xl border-2 border-slate-700 bg-slate-800 text-gray-400 font-bold text-xs flex flex-col items-center gap-1 transition";
+                statusText.innerText = "Sentuhan / Klik";
+            }
+        }
+
+        function loadQuestionPhase1() {
+            gamePhase = 1; // Fasa 1: Soalan
+            const qData = QUESTION_BANK[questionsSequence[currentQuestionIdx]];
+
+            document.getElementById('level-display').innerText = `${currentQuestionIdx + 1} / 20`;
+            document.getElementById('question-text').innerHTML = `
+                <span class="text-xs bg-slate-800 text-amber-300 px-2 py-0.5 rounded-md font-normal block w-max mx-auto mb-1">${qData.type}</span>
+                ${qData.question}
+            `;
+
+            // Fasa 2: Bina 3 Butang Pilihan
+            const container = document.getElementById('choices-container');
+            container.innerHTML = '';
+            selectedOptionIdx = null;
+
+            qData.options.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                btn.id = `choice-btn-${idx}`;
+                btn.onclick = () => selectOptionPhase2(idx);
+                btn.className = "py-3 px-2 bg-slate-800 hover:bg-amber-400 hover:text-slate-950 text-white font-extrabold text-xs md:text-sm rounded-2xl border-2 border-slate-700 hover:border-amber-300 transition shadow-lg flex items-center justify-center gap-1.5 transform active:scale-95";
+                btn.innerHTML = `<span class="w-5 h-5 bg-indigo-600 rounded-full text-white text-[10px] flex items-center justify-center shrink-0">${idx + 1}</span> ${opt}`;
+                container.appendChild(btn);
+            });
+
+            updateStatusBanner("1. SILA PILIH JAWAPAN KATA GANDA DI ATAS!", "text-cyan-300 animate-pulse");
+
+            // Reset Timer
+            clearInterval(timerInterval);
+            timer = 30;
+            document.getElementById('timer-display').innerText = `${timer}s`;
+            startTimer();
+
+            spawn10Pins();
+            resetBallPosition();
+
+            if (controlMode === 'touch') {
+                document.getElementById('manual-throw-btn').classList.add('hidden');
+            }
+        }
+
+        function selectOptionPhase2(idx) {
+            if (gamePhase !== 1) return;
+            selectedOptionIdx = idx;
+            gamePhase = 2; // Fasa 2: Pilih Jawapan & Kunci
+            audio.playSelect();
+
+            // Lock options styling
+            const qData = QUESTION_BANK[questionsSequence[currentQuestionIdx]];
+            qData.options.forEach((_, i) => {
+                const btn = document.getElementById(`choice-btn-${i}`);
+                if (i === idx) {
+                    btn.className = "py-3 px-2 bg-amber-400 text-slate-950 font-black text-xs md:text-sm rounded-2xl border-2 border-white shadow-xl scale-105 flex items-center justify-center gap-1.5";
+                } else {
+                    btn.className = "py-3 px-2 bg-slate-900/50 text-slate-500 font-bold text-xs md:text-sm rounded-2xl border border-slate-800 opacity-60 flex items-center justify-center gap-1.5";
+                    btn.disabled = true;
+                }
+            });
+
+            // Transition to Fasa 3: Get Ready
+            setTimeout(() => {
+                gamePhase = 3;
+                updateStatusBanner("🏃 SEDIAKAN TANGAN... HAYUN DENGAN PANTAS!", "text-amber-300 animate-bounce");
+                
+                if (controlMode === 'touch') {
+                    document.getElementById('manual-throw-btn').classList.remove('hidden');
+                }
+            }, 600);
+        }
+
+        function executeAISwing() {
+            if (gamePhase !== 3) return;
+            gamePhase = 4; // Fasa 4 & 5: Bowling Swing & AI Detect
+            updateStatusBanner("⚡ MENGESAN HAYUNAN... BOLA DIBALING!", "text-emerald-300");
+
+            setTimeout(() => {
+                gamePhase = 6; // Fasa 6: Bola Bergerak
+                ball.userData.vx = swingDirectionX;
+                ball.userData.vz = -swingVelocity;
+                ball.userData.isRolling = true;
+                audio.playHit();
+            }, 300);
+        }
+
+        function triggerManualThrow() {
+            if (gamePhase !== 3) return;
+            swingVelocity = 0.38 + Math.random() * 0.12;
+            swingDirectionX = (Math.random() - 0.5) * 0.4;
+            executeAISwing();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Phase 6: Ball Rolling Logic
+            if (gamePhase === 6 && ball.userData.isRolling) {
+                ball.position.z += ball.userData.vz;
+                ball.position.x += ball.userData.vx;
+                ball.rotation.x -= 0.15;
+
+                // Gutter boundaries
+                if (ball.position.x < -2.2) ball.position.x = -2.2;
+                if (ball.position.x > 2.2) ball.position.x = 2.2;
+
+                // Phase 7: Pin Collision Physics
+                pins.forEach((pin) => {
+                    if (!pin.hit) {
+                        const dist = ball.position.distanceTo(pin.mesh.position);
+                        if (dist < 0.75) {
+                            pin.hit = true;
+                            audio.playHit();
+
+                            // Calculate scatter physics momentum
+                            pin.vx = (pin.mesh.position.x - ball.position.x) * 0.15;
+                            pin.vz = -0.12;
+                            pin.vy = 0.04;
+                            pin.rx = Math.random() * 0.2;
+                            pin.rz = Math.random() * 0.2;
+                        }
+                    }
+                });
+
+                // Animate hit pins falling over
+                pins.forEach((pin) => {
+                    if (pin.hit) {
+                        pin.mesh.position.x += pin.vx;
+                        pin.mesh.position.z += pin.vz;
+                        pin.mesh.position.y += pin.vy;
+                        pin.mesh.rotation.x += pin.rx;
+                        pin.mesh.rotation.z += pin.rz;
+                        if (pin.mesh.position.y > 0.1) pin.vy -= 0.005; // Gravity
+                    }
+                });
+
+                // End of lane reached -> Phase 8: Semak & Pemarkahan
+                if (ball.position.z < -15.5) {
+                    ball.userData.isRolling = false;
+                    gamePhase = 7;
+                    setTimeout(evaluateScoreAndFeedbackPhase8, 800);
+                }
+            }
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        function evaluateScoreAndFeedbackPhase8() {
+            gamePhase = 8;
+            clearInterval(timerInterval);
+
+            const qData = QUESTION_BANK[questionsSequence[currentQuestionIdx]];
+            const isCorrect = (selectedOptionIdx === qData.correctIdx);
+
+            // Calculate Pin Strike Count
+            const fallenPinsCount = pins.filter(p => p.hit).length;
+            const pinUnitValue = 20;
+
+            let earnedScore = 0;
+
+            if (isCorrect) {
+                // Jawapan Betul: 100% daripada markah pin jatuh
+                earnedScore = fallenPinsCount * pinUnitValue;
+                score += earnedScore;
+                document.getElementById('score-display').innerText = score;
+                audio.playSuccess();
+
+                showToast(
+                    "SYABAS! JAWAPAN BETUL 🎉",
+                    `Pin Jatuh: ${fallenPinsCount} × ${pinUnitValue} = +${earnedScore} Markah!\n${qData.explain}`,
+                    "border-emerald-400 bg-emerald-950 text-emerald-300"
+                );
+            } else {
+                // Jawapan Kurang Tepat: 50% daripada markah pin jatuh
+                earnedScore = Math.floor((fallenPinsCount * pinUnitValue) / 2);
+                score += earnedScore;
+                document.getElementById('score-display').innerText = score;
+                audio.playFail();
+
+                const correctWord = qData.options[qData.correctIdx];
+                showToast(
+                    "KURANG TEPAT! ❌",
+                    `Jawapan Betul: "${correctWord}"\nMarkah (50%): +${earnedScore} Markah`,
+                    "border-rose-500 bg-rose-950 text-rose-300"
+                );
+            }
+
+            // Fasa 9 & 10: Sedia pusingan seterusnya / Tamat
+            setTimeout(() => {
+                currentQuestionIdx++;
+                if (currentQuestionIdx < 20) {
+                    loadQuestionPhase1();
+                } else {
+                    triggerGameOver(true);
+                }
+            }, 3000);
+        }
+
+        function updateStatusBanner(text, textClasses) {
+            const banner = document.getElementById('phase-status-banner');
+            const title = document.getElementById('status-title');
+            title.className = `text-xs md:text-sm font-extrabold ${textClasses}`;
+            title.innerText = text;
+        }
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                if (isGameOver) return;
+                timer--;
+                document.getElementById('timer-display').innerText = `${timer}s`;
+
+                if (timer <= 0) {
+                    clearInterval(timerInterval);
+                    audio.playFail();
+                    showToast("MASA TAMAT! ⏰", "Beralih ke soalan seterusnya...", "border-amber-500 bg-amber-950 text-amber-300");
+
+                    setTimeout(() => {
+                        currentQuestionIdx++;
+                        if (currentQuestionIdx < 20) {
+                            loadQuestionPhase1();
+                        } else {
+                            triggerGameOver(false);
+                        }
+                    }, 2000);
+                }
+            }, 1000);
+        }
+
+        function showToast(title, sub, classes) {
+            const toast = document.getElementById('feedback-toast');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-sub').innerText = sub;
+
+            toast.className = `fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 px-6 py-4 rounded-3xl text-center font-black shadow-2xl border-4 transition-all duration-300 transform min-w-[280px] ${classes}`;
+            
+            setTimeout(() => {
+                toast.classList.remove('scale-0', 'opacity-0');
+                toast.classList.add('scale-100', 'opacity-100');
+            }, 50);
+
+            setTimeout(() => {
+                toast.classList.remove('scale-100', 'opacity-100');
+                toast.classList.add('scale-0', 'opacity-0');
+            }, 2600);
+        }
+
+        function triggerGameOver(isWin) {
+            isGameOver = true;
+            clearInterval(timerInterval);
+
+            saveScoreRecord(studentName, score, currentQuestionIdx);
+
+            const modal = document.getElementById('gameover-modal');
+            document.getElementById('student-name-display').innerText = `Nama Murid: ${studentName}`;
+            document.getElementById('final-score').innerText = score;
+
+            modal.classList.remove('hidden');
+        }
+
+        function saveScoreRecord(name, finalScore, questionsAttempted) {
+            if (!name) return;
+            const records = JSON.parse(localStorage.getItem('kataganda_bowling_scores') || '[]');
+            records.push({
+                name: name,
+                score: finalScore,
+                date: new Date().toLocaleDateString('ms-MY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+            });
+            localStorage.setItem('kataganda_bowling_scores', JSON.stringify(records));
+        }
+
+        function renderLeaderboard() {
+            const listEl = document.getElementById('leaderboard-list');
+            const records = JSON.parse(localStorage.getItem('kataganda_bowling_scores') || '[]');
+
+            if (records.length === 0) {
+                listEl.innerHTML = `
+                    <div class="text-center text-gray-400 text-xs py-8 bg-slate-900/60 rounded-2xl border border-slate-800">
+                        <i class="fas fa-inbox text-2xl mb-2 text-slate-600"></i>
+                        <p>Belum ada rekod hantaran murid.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            records.sort((a, b) => b.score - a.score);
+
+            listEl.innerHTML = records.map((rec, idx) => `
+                <div class="bg-slate-800/90 rounded-xl p-2.5 border border-slate-700/80 flex justify-between items-center text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="w-5 h-5 ${idx === 0 ? 'bg-amber-400 text-slate-950 font-black' : 'bg-slate-700 text-amber-300 font-bold'} rounded-lg flex items-center justify-center text-[10px] shrink-0">${idx + 1}</span>
+                        <div>
+                            <p class="font-bold text-white text-xs">${rec.name}</p>
+                            <p class="text-[9px] text-gray-400"><i class="far fa-clock mr-1"></i>${rec.date}</p>
+                        </div>
+                    </div>
+                    <p class="font-extrabold text-amber-400 text-xs md:text-sm">${rec.score} pts</p>
+                </div>
+            `).join('');
+        }
+
+        function openLeaderboard() {
+            renderLeaderboard();
+            document.getElementById('leaderboard-modal').classList.remove('hidden');
+        }
+
+        function closeLeaderboard() {
+            document.getElementById('leaderboard-modal').classList.add('hidden');
+        }
+
+        function clearLeaderboard() {
+            localStorage.removeItem('kataganda_bowling_scores');
+            renderLeaderboard();
+        }
+
+        function startGame() {
+            const inputEl = document.getElementById('student-name-input');
+            const errEl = document.getElementById('name-error-msg');
+            const nameVal = inputEl.value.trim();
+
+            if (!nameVal) {
+                errEl.classList.remove('hidden');
+                inputEl.focus();
+                return;
+            }
+
+            errEl.classList.add('hidden');
+            studentName = nameVal;
+
+            audio.init();
+            document.getElementById('start-modal').classList.add('hidden');
+
+            if (controlMode === 'cam') {
+                initCameraTracking();
+            }
+
+            // Generate 20 random non-repeating question sequence
+            questionsSequence = Array.from({ length: QUESTION_BANK.length }, (_, i) => i);
+            questionsSequence.sort(() => Math.random() - 0.5);
+
+            score = 0;
+            currentQuestionIdx = 0;
+            isGameOver = false;
+
+            document.getElementById('score-display').innerText = score;
+            loadQuestionPhase1();
+        }
+
+        function restartGame() {
+            document.getElementById('gameover-modal').classList.add('hidden');
+            score = 0;
+            currentQuestionIdx = 0;
+            isGameOver = false;
+
+            document.getElementById('score-display').innerText = score;
+            loadQuestionPhase1();
+        }
+
+        function onWindowResize() {
+            if (camera && renderer) {
+                const aspect = window.innerWidth / window.innerHeight;
+                camera.aspect = aspect;
+                camera.fov = aspect < 1 ? 75 : 60;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        window.onload = function () {
+            initThreeJS();
+            animate();
+        };
+    </script>
+</body>
+</html>
